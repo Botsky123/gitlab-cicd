@@ -1,0 +1,50 @@
+stages:
+  - build
+  - push
+  - deploy
+
+variables:
+  # Google Cloud Platform project ID
+  PROJECT_ID: "peerless-column-407106"
+  # GKE cluster name
+  GKE_CLUSTER: "gke-cluster-test"
+  # Artifact Registry repository name
+  ARTIFACT_REPO: "docker-repo"
+  # Docker image name in Artifact Registry
+  ARTIFACT_IMAGE: "us-central1-docker.pkg.dev/$PROJECT_ID/$ARTIFACT_REPO/mynginx-docker:$CI_COMMIT_SHORT_SHA"
+  #Registry
+  REPO: "us-central1-docker.pkg.dev/$PROJECT_ID/$ARTIFACT_REPO/mynginx-docker"
+  TAG: "$CI_COMMIT_SHORT_SHA"
+
+before_script:
+  - echo $GOOGLE_APPLICATION_CREDENTIALS_JSON >> gcp-key.json
+  - cat gcp-key.json
+  - gcloud auth activate-service-account --key-file=gcp-key.json
+  - gcloud config set project $PROJECT_ID
+  - gcloud container clusters get-credentials $GKE_CLUSTER --zone=us-central1-b
+
+
+build:
+  stage: build
+  script:
+    - docker build -t "$ARTIFACT_IMAGE" .
+    - echo $GOOGLE_APPLICATION_CREDENTIALS_JSON > gcp-key.json
+    - gcloud auth activate-service-account --key-file=gcp-key.json
+    - gcloud auth configure-docker us-central1-docker.pkg.dev
+    - docker push "$ARTIFACT_IMAGE" || exit 1
+  
+push:
+  stage: push
+  script:
+    - echo "Push to GCP Artifact Registry"
+
+deploy:
+  stage: deploy
+  script:
+    - gcloud container clusters get-credentials $GKE_CLUSTER --region us-central1-b 
+    - cd app-backend/
+    - sed -i 's/container_image_tag/$TAG/g' values.yaml
+    - helm upgrade --install nginx-docker -n nginx-docker .
+   
+    
+
